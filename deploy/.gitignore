@@ -1,0 +1,5 @@
+deploy/secrets/
+deploy/backups/
+deploy/.env.production
+deploy/.env
+*.keypair.json

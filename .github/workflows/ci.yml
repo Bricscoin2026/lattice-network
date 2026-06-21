@@ -1,0 +1,73 @@
+name: Lattice CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:7
+        ports: [27017:27017]
+        options: --health-cmd "mongosh --eval 'db.runCommand({ping:1})'" --health-interval 5s --health-timeout 3s --health-retries 5
+    env:
+      MONGO_URL: mongodb://localhost:27017
+      DB_NAME: lattice_ci
+      REACT_APP_BACKEND_URL: http://localhost:8001
+      LATTICE_STRICT_AUTH: "0"
+      LATTICE_ENVELOPE_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+    steps:
+      - uses: actions/checkout@v4
+      - name: System deps
+        run: sudo apt-get update && sudo apt-get install -y libmagic1
+      - name: Python
+        uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: pip }
+      - name: Install deps
+        run: pip install -r backend/requirements.txt
+      - name: Ruff lint
+        run: pip install ruff && ruff check backend/ --select=E9,F63,F7,F82
+      - name: Boot backend
+        run: |
+          uvicorn server:app --host 0.0.0.0 --port 8001 --app-dir backend &
+          for i in $(seq 1 30); do curl -fsS http://localhost:8001/api/health && break; sleep 1; done
+      - name: Pytest (active suites)
+        run: |
+          pytest -q backend/tests/test_iteration_9.py \
+                    backend/tests/test_iteration_16.py \
+                    backend/tests/test_iteration_17.py \
+                    backend/tests/test_iteration_18_additional.py \
+                    backend/tests/test_iteration_24_recovery.py
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20", cache: yarn, cache-dependency-path: frontend/yarn.lock }
+      - name: Install
+        run: cd frontend && yarn install --frozen-lockfile
+      - name: ESLint
+        run: cd frontend && yarn lint 2>&1 || true
+      - name: Build (production)
+        env:
+          REACT_APP_BACKEND_URL: https://api.example.com
+        run: cd frontend && yarn build
+
+  rust-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with: { targets: wasm32-unknown-unknown }
+      - name: wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Build lattice-wasm
+        run: cd lattice/prod/lattice-wasm && wasm-pack build --target web --release
+      - name: Cargo test (core crates)
+        run: cd lattice && cargo test --workspace --exclude lattice-wasm --release

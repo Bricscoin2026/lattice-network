@@ -1,0 +1,30 @@
+[package]
+name = "lattice-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "Lattice client-side ML-DSA-65 signing (FIPS 204) for the browser via WebAssembly"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Pure-Rust ML-DSA (FIPS 204) — works on wasm32-unknown-unknown.
+ml-dsa = { version = "0.1", default-features = false, features = ["alloc", "getrandom", "rand_core"] }
+# Pull the same getrandom version the transitive deps want, but with wasm_js.
+getrandom = { version = "0.4", default-features = false, features = ["wasm_js"] }
+# JS interop.
+wasm-bindgen = "0.2"
+hex = { version = "0.4", default-features = false, features = ["alloc"] }
+sha3 = { version = "0.10", default-features = false }
+console_error_panic_hook = { version = "0.1", optional = true }
+
+[features]
+default = ["console_error_panic_hook"]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"

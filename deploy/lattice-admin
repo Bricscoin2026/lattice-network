@@ -1,0 +1,338 @@
+#!/usr/bin/env python3
+"""
+lattice-admin — SysAdmin CLI for self-hosted Lattice Network deployments.
+
+Wraps the platform-sovereign HTTP API behind a friendly terminal interface
+so on-call operators can manage a Lattice container over SSH without
+opening the web UI.
+
+Usage:
+    lattice-admin license status
+    lattice-admin license install ./customer.lic
+    lattice-admin license reload
+
+    lattice-admin secrets status
+    lattice-admin secrets unlock                  # prompts for passphrase
+    lattice-admin secrets init                    # prompts for passphrase
+
+    lattice-admin backup snapshot --out ./backup.json
+    lattice-admin backup restore ./backup.json
+
+    lattice-admin ots status
+    lattice-admin ots anchor                      # create new anchor now
+    lattice-admin ots upgrade-all                 # sweep pending anchors
+    lattice-admin ots download <anchor_id> -o ./proof.ots
+
+    lattice-admin health                          # one-pane sysadmin view
+
+Configuration (in order of precedence):
+    1. CLI flag `--url https://lattice.your-org.it`
+    2. env  LATTICE_ADMIN_URL=…
+    3. ./frontend/.env  REACT_APP_BACKEND_URL
+    4. http://localhost:8001
+
+Auth:
+    Adds `X-Lattice-Role: sovereign` header automatically. In production
+    set `LATTICE_STRICT_AUTH=1` on the backend and pass `--jwt <token>`
+    or env `LATTICE_ADMIN_JWT`.
+
+Exit codes:
+    0 — success
+    1 — generic CLI error / bad args
+    2 — HTTP error from backend
+    3 — local file error
+"""
+from __future__ import annotations
+
+import argparse
+import getpass
+import json
+import os
+import pathlib
+import re
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+DEFAULT_TIMEOUT = 30
+
+
+def _resolve_base_url(args: argparse.Namespace) -> str:
+    if getattr(args, "url", None):
+        return args.url.rstrip("/")
+    env_url = os.environ.get("LATTICE_ADMIN_URL", "").strip()
+    if env_url:
+        return env_url.rstrip("/")
+    # Try ../frontend/.env (when running from /app/deploy)
+    for candidate in [
+        pathlib.Path(__file__).resolve().parent.parent / "frontend" / ".env",
+        pathlib.Path.cwd() / "frontend" / ".env",
+    ]:
+        if candidate.exists():
+            raw = candidate.read_text(encoding="utf-8")
+            m = re.search(r'^REACT_APP_BACKEND_URL\s*=\s*"?([^"\n]+)"?', raw, re.M)
+            if m:
+                return m.group(1).strip().rstrip("/")
+    return "http://localhost:8001"
+
+
+def _headers(args: argparse.Namespace) -> dict:
+    h = {
+        "X-Lattice-Role": "sovereign",
+        "Content-Type": "application/json",
+        "User-Agent": "lattice-admin-cli/1.0",
+    }
+    jwt = getattr(args, "jwt", None) or os.environ.get("LATTICE_ADMIN_JWT", "").strip()
+    if jwt:
+        h["Authorization"] = f"Bearer {jwt}"
+    return h
+
+
+def _request(args: argparse.Namespace, method: str, path: str, *,
+             body: dict | None = None, raw: bool = False, extra_headers: dict | None = None):
+    """Perform an HTTP request and return (status, body). `raw=True` returns bytes."""
+    url = _resolve_base_url(args) + path
+    headers = _headers(args)
+    if extra_headers:
+        headers.update(extra_headers)
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=DEFAULT_TIMEOUT) as resp:
+            payload = resp.read()
+            if raw:
+                return resp.status, payload
+            return resp.status, json.loads(payload.decode("utf-8")) if payload else None
+    except urllib.error.HTTPError as e:
+        body_bytes = e.read()
+        try:
+            err = json.loads(body_bytes.decode("utf-8"))
+            detail = err.get("detail", body_bytes.decode("utf-8"))
+        except Exception:
+            detail = body_bytes.decode("utf-8", errors="replace")
+        print(f"HTTP {e.code} {e.reason}: {detail}", file=sys.stderr)
+        sys.exit(2)
+    except urllib.error.URLError as e:
+        print(f"Connection error: {e.reason}", file=sys.stderr)
+        sys.exit(2)
+
+
+def _print_json(obj) -> None:
+    print(json.dumps(obj, indent=2, sort_keys=True))
+
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+
+def cmd_license_status(args):
+    _, body = _request(args, "GET", "/api/admin/license/status")
+    _print_json(body)
+
+
+def cmd_license_install(args):
+    path = pathlib.Path(args.file)
+    if not path.exists():
+        print(f"License file not found: {path}", file=sys.stderr)
+        sys.exit(3)
+    try:
+        license_doc = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        print(f"Invalid JSON in {path}: {e}", file=sys.stderr)
+        sys.exit(3)
+    if "signature_hex" not in license_doc or "edition" not in license_doc:
+        print("License file missing required fields (signature_hex, edition)", file=sys.stderr)
+        sys.exit(3)
+    _, body = _request(args, "POST", "/api/admin/license/install",
+                       body={"license": license_doc})
+    edition = (body.get("status") or {}).get("edition", "?")
+    print(f"License installed · edition={edition}")
+    if args.verbose:
+        _print_json(body)
+
+
+def cmd_license_reload(args):
+    _, body = _request(args, "POST", "/api/admin/license/reload")
+    edition = (body.get("status") or {}).get("edition", "?")
+    print(f"License reloaded from disk · edition={edition}")
+
+
+def cmd_secrets_status(args):
+    _, body = _request(args, "GET", "/api/admin/secrets/status")
+    _print_json(body)
+
+
+def cmd_secrets_unlock(args):
+    passphrase = args.passphrase or getpass.getpass("Passphrase: ")
+    _, body = _request(args, "POST", "/api/admin/secrets/unlock",
+                       body={"passphrase": passphrase})
+    print(f"Unlock: mode={body.get('mode')} unlocked={body.get('unlocked')}")
+
+
+def cmd_secrets_init(args):
+    passphrase = args.passphrase or getpass.getpass("New passphrase (≥12 chars): ")
+    if len(passphrase) < 12:
+        print("Passphrase must be at least 12 characters", file=sys.stderr)
+        sys.exit(1)
+    confirm = args.passphrase or getpass.getpass("Confirm passphrase: ")
+    if passphrase != confirm:
+        print("Passphrases do not match", file=sys.stderr)
+        sys.exit(1)
+    _, body = _request(args, "POST", "/api/admin/secrets/init",
+                       body={"passphrase": passphrase})
+    print(f"Keystore initialised · mode={body.get('mode')}")
+
+
+def cmd_backup_snapshot(args):
+    _, body = _request(args, "GET", "/api/admin/backup/snapshot")
+    out = pathlib.Path(args.out) if args.out else pathlib.Path(f"./lattice-backup.json")
+    out.write_text(json.dumps(body, indent=2, sort_keys=True), encoding="utf-8")
+    stats = body.get("stats") or {}
+    total = sum(stats.values()) if stats else 0
+    print(f"Snapshot saved to {out} · {total} docs across {len(stats)} collections")
+
+
+def cmd_backup_restore(args):
+    path = pathlib.Path(args.file)
+    if not path.exists():
+        print(f"Snapshot file not found: {path}", file=sys.stderr)
+        sys.exit(3)
+    snapshot = json.loads(path.read_text(encoding="utf-8"))
+    if not args.yes:
+        print(f"WARNING: this will DELETE all existing data and replace with {path}.")
+        ans = input("Type 'YES' to confirm: ")
+        if ans != "YES":
+            print("Aborted.")
+            sys.exit(1)
+    # Backend requires the X-Lattice-Backup-Confirm header with token
+    confirm_token = args.confirm_token or os.environ.get(
+        "LATTICE_BACKUP_CONFIRM_TOKEN", "RESTORE_DESTROYS_EVERYTHING"
+    )
+    _, body = _request(
+        args, "POST", "/api/admin/backup/restore", body=snapshot,
+        extra_headers={"X-Lattice-Backup-Confirm": confirm_token},
+    )
+    print(body.get("message", "Restore complete"))
+
+
+def cmd_ots_status(args):
+    _, body = _request(args, "GET", "/api/admin/ots/status")
+    _print_json(body)
+
+
+def cmd_ots_anchor(args):
+    print("Submitting anchor to OpenTimestamps calendar…")
+    _, body = _request(args, "POST", "/api/admin/ots/anchor")
+    anchor = body.get("anchor") or {}
+    print(f"Anchor created · id={anchor.get('anchor_id')} digest={(anchor.get('digest_hex') or '')[:16]}…")
+
+
+def cmd_ots_upgrade_all(args):
+    print("Sweeping pending OTS anchors…")
+    _, body = _request(args, "POST", "/api/admin/ots/upgrade-all")
+    print(f"Pending={body.get('pending')} · Promoted={body.get('promoted')}")
+    if args.verbose:
+        _print_json(body.get("results"))
+
+
+def cmd_ots_download(args):
+    _, blob = _request(args, "GET", f"/api/admin/ots/anchors/{args.anchor_id}/proof", raw=True)
+    out = pathlib.Path(args.out) if args.out else pathlib.Path(f"{args.anchor_id}.ots")
+    out.write_bytes(blob)
+    print(f"Proof saved to {out} ({len(blob)} bytes)")
+
+
+def cmd_health(args):
+    _, body = _request(args, "GET", "/api/admin/health/overview")
+    val = body.get("validators") or {}
+    mix = body.get("mixnet") or {}
+    chain = body.get("chain") or {}
+    disk = body.get("disk") or {}
+    lic = body.get("license") or {}
+    sec = body.get("secrets") or {}
+    ots = body.get("ots") or {}
+    print(f"= Lattice Network · {body.get('chain_id')} · {body.get('timestamp')}")
+    print(f"  Validators       : {val.get('online','?')}/{val.get('total','?')}  quorum={'OK' if val.get('quorum_reached') else 'LOST'}")
+    print(f"  Mixnet           : {'ON' if mix.get('enabled') else 'OFF'} ({mix.get('online',0)}/{mix.get('total',0)})")
+    print(f"  Ledger           : {chain.get('blocks',0)} blocks · {chain.get('transactions',0)} tx · {chain.get('tenants',0)} tenants · {chain.get('lns_identities',0)} LNS")
+    print(f"  Disk             : {disk.get('used_pct','?')}% used ({_human(disk.get('free_bytes',0))} free)")
+    print(f"  Keystore         : mode={sec.get('mode')} unlocked={sec.get('unlocked')}")
+    print(f"  License          : {lic.get('edition','?')} · signed={lic.get('signed')} · days_remaining={lic.get('days_remaining','-')}")
+    print(f"  OTS              : enabled={ots.get('enabled')} · anchors={ots.get('anchors_total',0)} · btc_attested={ots.get('btc_attested',0)}")
+    alerts = body.get("alerts") or []
+    if alerts:
+        print(f"  ALERTS ({len(alerts)}):")
+        for a in alerts:
+            print(f"    - [{a.get('severity','?').upper()}] {a.get('key')}")
+
+
+def _human(n: int) -> str:
+    units = ["B", "KB", "MB", "GB", "TB"]
+    i = 0
+    v = float(n or 0)
+    while v >= 1024 and i < len(units) - 1:
+        v /= 1024
+        i += 1
+    return f"{v:.1f} {units[i]}"
+
+
+# ---------------------------------------------------------------------------
+# Argparse wiring
+# ---------------------------------------------------------------------------
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="lattice-admin", description="SysAdmin CLI for Lattice Network")
+    p.add_argument("--url", help="Lattice backend base URL (default: env LATTICE_ADMIN_URL or frontend/.env)")
+    p.add_argument("--jwt", help="JWT bearer token (when LATTICE_STRICT_AUTH=1)")
+    p.add_argument("-v", "--verbose", action="store_true")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    # license
+    g = sub.add_parser("license", help="manage the ML-DSA license")
+    gs = g.add_subparsers(dest="sub", required=True)
+    gs.add_parser("status").set_defaults(func=cmd_license_status)
+    i = gs.add_parser("install"); i.add_argument("file"); i.set_defaults(func=cmd_license_install)
+    gs.add_parser("reload").set_defaults(func=cmd_license_reload)
+
+    # secrets
+    g = sub.add_parser("secrets", help="manage the at-rest envelope key")
+    gs = g.add_subparsers(dest="sub", required=True)
+    gs.add_parser("status").set_defaults(func=cmd_secrets_status)
+    u = gs.add_parser("unlock"); u.add_argument("--passphrase"); u.set_defaults(func=cmd_secrets_unlock)
+    n = gs.add_parser("init"); n.add_argument("--passphrase"); n.set_defaults(func=cmd_secrets_init)
+
+    # backup
+    g = sub.add_parser("backup", help="snapshot / restore the application DB")
+    gs = g.add_subparsers(dest="sub", required=True)
+    s = gs.add_parser("snapshot"); s.add_argument("--out", "-o"); s.set_defaults(func=cmd_backup_snapshot)
+    r = gs.add_parser("restore"); r.add_argument("file"); r.add_argument("--yes", "-y", action="store_true")
+    r.add_argument("--confirm-token", help="X-Lattice-Backup-Confirm token (default: env LATTICE_BACKUP_CONFIRM_TOKEN)")
+    r.set_defaults(func=cmd_backup_restore)
+
+    # ots
+    g = sub.add_parser("ots", help="OpenTimestamps Bitcoin anchor")
+    gs = g.add_subparsers(dest="sub", required=True)
+    gs.add_parser("status").set_defaults(func=cmd_ots_status)
+    gs.add_parser("anchor").set_defaults(func=cmd_ots_anchor)
+    gs.add_parser("upgrade-all").set_defaults(func=cmd_ots_upgrade_all)
+    d = gs.add_parser("download"); d.add_argument("anchor_id"); d.add_argument("--out", "-o")
+    d.set_defaults(func=cmd_ots_download)
+
+    # health
+    sub.add_parser("health", help="one-pane SysAdmin overview").set_defaults(func=cmd_health)
+
+    return p
+
+
+def main(argv=None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    args.func(args)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

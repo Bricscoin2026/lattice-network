@@ -1,0 +1,12 @@
+[package]
+name = "certify-gateway"
+version = "0.1.0"
+edition = "2021"
+license = "LicenseRef-LatticeCommercial"
+description = "Lattice Network — Certify SMTP→Notary Gateway (closed-source, proprietary)."
+
+[dependencies]
+lattice-crypto = { path = "../../core/lattice-crypto" }
+lattice-node = { path = "../../core/lattice-node" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

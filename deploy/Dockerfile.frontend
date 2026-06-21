@@ -1,0 +1,35 @@
+# Lattice Network — Frontend image
+#
+# Stage 1: yarn install + react-scripts build → static bundle in /app/build
+# Stage 2: nginx alpine serving the SPA + rewriting /api to the backend
+#
+# Build:
+#   docker build -f deploy/Dockerfile.frontend \
+#     --build-arg REACT_APP_BACKEND_URL=https://api.lattice.tuodominio.it \
+#     -t lattice-frontend:latest .
+
+FROM node:20-bookworm-slim AS build
+
+ARG REACT_APP_BACKEND_URL
+ENV REACT_APP_BACKEND_URL=${REACT_APP_BACKEND_URL}
+
+WORKDIR /src
+COPY frontend/package.json frontend/yarn.lock ./
+RUN corepack enable && yarn install --frozen-lockfile
+
+COPY frontend/ ./
+RUN yarn build
+
+
+FROM nginx:1.27-alpine
+
+COPY --from=build /src/build /usr/share/nginx/html
+COPY deploy/nginx-frontend.conf  /etc/nginx/conf.d/default.conf
+COPY deploy/_lattice_proxy.inc   /etc/nginx/conf.d/_lattice_proxy.inc
+
+EXPOSE 80
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
+    CMD wget -qO- http://127.0.0.1/ >/dev/null || exit 1
+
+CMD ["nginx", "-g", "daemon off;"]

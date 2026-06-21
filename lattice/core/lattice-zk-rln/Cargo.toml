@@ -1,0 +1,11 @@
+[package]
+name = "lattice-zk-rln"
+version = "0.1.0"
+edition = "2021"
+license = "BSL-1.1"
+description = "Lattice Network — Zero-Knowledge Rate-Limiting Nullifier (Groth16) anti-bot layer (open-core)."
+
+[dependencies]
+lattice-crypto = { path = "../lattice-crypto" }
+serde = { version = "1.0", features = ["derive"] }
+sha3 = "0.10"

@@ -1,0 +1,148 @@
+name: E2E (Playwright)
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "frontend/**"
+      - "backend/**"
+      - "e2e/**"
+      - ".github/workflows/e2e.yml"
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: "PLAYWRIGHT_BASE_URL (e.g. https://staging.lattice.it)"
+        required: false
+
+jobs:
+  playwright:
+    name: Playwright Chromium
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      # MongoDB for the backend under test (only used by the docker-up path).
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # -------------------------------------------------------------------
+      # Backend (FastAPI) — only when running against an in-container build.
+      # If `target_url` is provided we skip the backend boot and hit the
+      # remote env directly.
+      # -------------------------------------------------------------------
+      - name: Set up Python
+        if: ${{ github.event.inputs.target_url == '' }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install backend deps
+        if: ${{ github.event.inputs.target_url == '' }}
+        run: |
+          pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install emergentintegrations --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/ || true
+
+      - name: Bootstrap test license
+        if: ${{ github.event.inputs.target_url == '' }}
+        working-directory: backend
+        env:
+          LATTICE_ENVELOPE_KEY: ${{ secrets.LATTICE_ENVELOPE_KEY || '0000000000000000000000000000000000000000000000000000000000000001' }}
+        run: |
+          mkdir -p data
+          python -m scripts.issue_license keygen --out data/vendor_keypair.json
+          python -m scripts.issue_license sign \
+            --priv data/vendor_keypair.json \
+            --edition enterprise \
+            --tenant "CI Test Tenant" \
+            --valid-until 2030-01-01T00:00:00Z \
+            --max-tenants 50 --max-users 1000 \
+            --feature pulse --feature certify --feature mixnet \
+            --feature banking_audit --feature ots_anchor \
+            --out data/license.lic
+
+      - name: Start backend (uvicorn)
+        if: ${{ github.event.inputs.target_url == '' }}
+        working-directory: backend
+        env:
+          MONGO_URL: mongodb://localhost:27017
+          DB_NAME: lattice_ci
+          LATTICE_JWT_SECRET: ci-test-secret-${{ github.sha }}
+          LATTICE_ENVELOPE_KEY: ${{ secrets.LATTICE_ENVELOPE_KEY || '0000000000000000000000000000000000000000000000000000000000000001' }}
+          LATTICE_STRICT_AUTH: "0"
+        run: |
+          nohup uvicorn server:app --host 0.0.0.0 --port 8001 > backend.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fs http://localhost:8001/api/admin/health/overview > /dev/null; then
+              echo "Backend ready"; break
+            fi
+            sleep 1
+          done
+
+      # -------------------------------------------------------------------
+      # Frontend (CRA) — same skip rule as backend.
+      # -------------------------------------------------------------------
+      - name: Set up Node
+        if: ${{ github.event.inputs.target_url == '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "yarn"
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Install frontend deps
+        if: ${{ github.event.inputs.target_url == '' }}
+        working-directory: frontend
+        run: yarn install --frozen-lockfile
+
+      - name: Build frontend
+        if: ${{ github.event.inputs.target_url == '' }}
+        working-directory: frontend
+        env:
+          REACT_APP_BACKEND_URL: http://localhost:8001
+        run: |
+          yarn build
+          npx serve -s build -l 3000 > frontend.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fs http://localhost:3000 > /dev/null; then
+              echo "Frontend ready"; break
+            fi
+            sleep 1
+          done
+
+      # -------------------------------------------------------------------
+      # Playwright suite
+      # -------------------------------------------------------------------
+      - name: Install Playwright deps
+        working-directory: e2e
+        run: |
+          yarn install --frozen-lockfile
+          npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        working-directory: e2e
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ github.event.inputs.target_url || 'http://localhost:3000' }}
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.run_number }}
+          path: e2e/playwright-report/
+          retention-days: 14
+
+      - name: Upload backend logs
+        if: failure() && github.event.inputs.target_url == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-log
+          path: backend/backend.log

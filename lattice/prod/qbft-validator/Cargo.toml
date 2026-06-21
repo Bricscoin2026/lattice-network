@@ -1,0 +1,29 @@
+[package]
+name = "qbft-validator"
+version = "0.1.0"
+edition = "2021"
+license = "BSL-1.1"
+description = "Lattice QBFT validator — native Rust replacement of backend/qbft_node.py."
+
+[[bin]]
+name = "qbft-validator"
+path = "src/main.rs"
+
+[dependencies]
+lattice-crypto = { path = "../../core/lattice-crypto" }
+# PQClean ML-DSA-65 (NIST FIPS 204 finale) — wire-compatible con il Python
+# `pqcrypto.sign.ml_dsa_65` usato dal backend FastAPI.
+pqcrypto-mldsa = "0.1"
+pqcrypto-traits = "0.3"
+tokio = { version = "1", features = ["full"] }
+axum = "0.7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+mongodb = { version = "3.2", default-features = false, features = ["rustls-tls", "dns-resolver", "bson-2", "compat-3-3-0"] }
+bson = { version = "2.13", features = ["chrono-0_4"] }
+chrono = { version = "0.4", features = ["serde"] }
+hex = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+once_cell = "1"

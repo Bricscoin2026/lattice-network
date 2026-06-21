@@ -1,0 +1,16 @@
+{
+  "name": "lattice-e2e",
+  "version": "1.0.0",
+  "description": "End-to-end Playwright suite for Lattice Network — runs against the live preview or a docker-compose stack.",
+  "private": true,
+  "scripts": {
+    "install:browsers": "npx playwright install --with-deps chromium",
+    "test": "npx playwright test",
+    "test:headed": "npx playwright test --headed",
+    "test:debug": "npx playwright test --debug",
+    "test:report": "npx playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.0"
+  }
+}

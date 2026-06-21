@@ -1,0 +1,88 @@
+name: Backend Tests (pytest)
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-tests.yml"
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    name: pytest (admin + ots + iter30)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Issue test license
+        working-directory: backend
+        env:
+          LATTICE_ENVELOPE_KEY: "0000000000000000000000000000000000000000000000000000000000000001"
+        run: |
+          mkdir -p data
+          python -m scripts.issue_license keygen --out data/vendor_keypair.json
+          python -m scripts.issue_license sign \
+            --priv data/vendor_keypair.json \
+            --edition enterprise \
+            --tenant "CI Test Tenant" \
+            --valid-until 2030-01-01T00:00:00Z \
+            --max-tenants 50 --max-users 1000 \
+            --feature pulse --feature certify --feature mixnet \
+            --feature banking_audit --feature ots_anchor \
+            --out data/license.lic
+
+      - name: Start backend
+        working-directory: backend
+        env:
+          MONGO_URL: mongodb://localhost:27017
+          DB_NAME: lattice_ci
+          LATTICE_JWT_SECRET: ci-secret
+          LATTICE_ENVELOPE_KEY: "0000000000000000000000000000000000000000000000000000000000000001"
+          LATTICE_STRICT_AUTH: "0"
+        run: |
+          nohup uvicorn server:app --host 0.0.0.0 --port 8001 > backend.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fs http://localhost:8001/api/admin/health/overview > /dev/null; then
+              echo "ready"; break
+            fi; sleep 1
+          done
+
+      - name: Prepare REACT_APP_BACKEND_URL for tests
+        run: |
+          mkdir -p frontend
+          echo 'REACT_APP_BACKEND_URL="http://localhost:8001"' > frontend/.env
+
+      - name: Run pytest
+        working-directory: backend
+        run: |
+          python -m pytest tests/test_iteration_23_admin.py \
+            tests/test_iteration_29_ots.py \
+            tests/test_iteration_30_routes.py \
+            -v --tb=short
+
+      - name: Upload backend logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-log
+          path: backend/backend.log

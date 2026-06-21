@@ -1,0 +1,90 @@
+# Lattice Network — Backend image
+#
+# Multi-stage:
+#   1. rust-builder  → compiles the PyO3 wheel (lattice_py) AND the
+#                      native standalone Rust binaries (qbft-validator
+#                      + mixnet-relay) that power the blockchain.
+#   2. py-runtime    → installs Python deps + the wheel, copies the
+#                      native binaries, runs supervisor with:
+#                      1 FastAPI gateway + 4 QBFT validators (Rust)
+#                      + 3 Mixnet relays (Rust).
+#
+# Build:
+#   docker build -f deploy/Dockerfile.backend -t lattice-backend:latest .
+#
+# Run (compose handles this automatically):
+#   docker run --rm -p 8001:8001 --env-file deploy/.env.production lattice-backend:latest
+
+# ---------------------------------------------------------------------------
+# Stage 1 — Build the Rust workspace (PyO3 wheel + native binaries)
+# ---------------------------------------------------------------------------
+FROM rust:1.83-slim-bookworm AS rust-builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip python3-venv python3-dev \
+    build-essential pkg-config libssl-dev cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m venv /opt/maturin-venv \
+    && /opt/maturin-venv/bin/pip install --no-cache-dir 'maturin>=1.5,<2.0'
+
+WORKDIR /build
+COPY lattice/ ./lattice/
+
+# 1a. PyO3 wheel for `lattice_py` (called by the FastAPI gateway).
+WORKDIR /build/lattice/prod/lattice-py
+RUN /opt/maturin-venv/bin/maturin build --release --out /wheels
+
+# 1b. Native standalone binaries (FASE 2 + FASE 3 — Rust blockchain stack).
+#     - qbft-validator + mixnet-relay replace Python qbft_node + mixnet_relay
+#     - lattice-gateway exposes 12 read-only /api/* endpoints natively
+WORKDIR /build/lattice
+RUN cargo build --release -p qbft-validator -p mixnet-relay -p lattice-gateway
+
+
+# ---------------------------------------------------------------------------
+# Stage 2 — Python runtime
+# ---------------------------------------------------------------------------
+FROM python:3.11-slim-bookworm AS py-runtime
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    LATTICE_STRICT_AUTH=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    supervisor curl ca-certificates libmagic1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /var/log/supervisor /data/attachments /secrets \
+                /opt/lattice/bin
+
+WORKDIR /app/backend
+
+# Python deps first (better layer cache).
+COPY backend/requirements.txt /app/backend/requirements.txt
+RUN pip install -r /app/backend/requirements.txt
+
+# Install the real Rust PyO3 wheel produced in stage 1.
+COPY --from=rust-builder /wheels/*.whl /tmp/wheels/
+RUN pip install /tmp/wheels/*.whl && rm -rf /tmp/wheels
+
+# Native Rust blockchain binaries (FASE 2 + FASE 3).
+COPY --from=rust-builder /build/lattice/target/release/qbft-validator  /opt/lattice/bin/qbft-validator
+COPY --from=rust-builder /build/lattice/target/release/mixnet-relay    /opt/lattice/bin/mixnet-relay
+COPY --from=rust-builder /build/lattice/target/release/lattice-gateway /opt/lattice/bin/lattice-gateway
+RUN chmod +x /opt/lattice/bin/qbft-validator /opt/lattice/bin/mixnet-relay /opt/lattice/bin/lattice-gateway
+
+# Application code (Python FastAPI gateway + reference Python qbft/mixnet
+# scripts kept as legacy fallback).
+COPY backend/ /app/backend/
+
+# Supervisor config (1 FastAPI gateway + 4 QBFT Rust + 3 Mixnet Rust).
+COPY deploy/supervisor.conf /etc/supervisor/conf.d/lattice.conf
+
+EXPOSE 8001
+
+# Healthcheck — public unauth endpoint (always reachable).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:8001/api/health || exit 1
+
+CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/supervisord.conf"]

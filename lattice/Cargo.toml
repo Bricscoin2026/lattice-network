@@ -1,0 +1,17 @@
+[workspace]
+members = [
+    "core/lattice-crypto",
+    "core/lattice-node",
+    "core/pulse-protocol",
+    "core/pulse-ratchet",
+    "core/lattice-zk-rln",
+    "core/lattice-mixnet",
+    "prod/certify-gateway",
+    "prod/lattice-admin-console",
+    "prod/lattice-py",
+    "prod/lattice-wasm",
+    "prod/qbft-validator",
+    "prod/mixnet-relay",
+    "prod/lattice-gateway"
+]
+resolver = "2"

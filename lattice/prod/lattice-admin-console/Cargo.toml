@@ -1,0 +1,12 @@
+[package]
+name = "lattice-admin-console"
+version = "0.1.0"
+edition = "2021"
+license = "LicenseRef-LatticeCommercial"
+description = "Lattice Network — Sovereign Admin Console backend (closed-source, proprietary)."
+
+[dependencies]
+lattice-crypto = { path = "../../core/lattice-crypto" }
+lattice-node = { path = "../../core/lattice-node" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

@@ -1,0 +1,116 @@
+{
+  "theme": "Dark",
+  "archetype": "4 (Swiss & High-Contrast)",
+  "rationale": "Sober, technical, dense with real terminology. Must appeal to CISOs, CTOs, and Compliance Officers of regulated EU enterprises. Avoids marketing fluff and 'pastel SaaS' clichés. Embraces a 'Sovereign Gold & Dark Slate' aesthetic.",
+  "colors": {
+    "background": "var(--lattice-bg) / #0b1220",
+    "surface": "var(--lattice-surface) / #111a2c",
+    "surface_2": "var(--lattice-surface-2) / #1a253a",
+    "border": "var(--lattice-border) / #1e293b",
+    "accent_primary": "var(--lattice-gold) / #d4af37",
+    "accent_hover": "var(--lattice-gold-hi) / #f3e5ab",
+    "text_primary": "var(--lattice-text) / #ffffff",
+    "text_secondary": "var(--lattice-text-2) / #cbd5e1",
+    "text_tertiary": "var(--lattice-text-3) / #94a3b8",
+    "success": "var(--lattice-success) / #34d399",
+    "error": "var(--lattice-error) / #ef4444"
+  },
+  "typography": {
+    "font_families": {
+      "display": "Cormorant Garamond (via .font-display)",
+      "mono": "JetBrains Mono (via .font-mono-data)",
+      "sans": "Manrope (via .font-sans-ui)"
+    },
+    "hierarchy": {
+      "h1": "text-5xl md:text-6xl font-display tracking-tight text-white",
+      "h2": "text-3xl md:text-4xl font-display text-white",
+      "h3": "text-xl font-sans-ui text-white",
+      "eyebrow": "text-[11px] font-mono-data uppercase tracking-[0.22em] text-[rgba(212,175,55,0.75)]",
+      "body": "text-base font-sans-ui text-[var(--lattice-text-2)] leading-relaxed",
+      "data": "text-[13px] font-mono-data text-[var(--lattice-text-2)]"
+    }
+  },
+  "layout_and_spacing": {
+    "alignment": "Asymmetric, left-aligned layouts. No centered generic clichés.",
+    "container": "max-w-7xl mx-auto px-6 md:px-12",
+    "section_spacing": "py-24 md:py-32",
+    "grid_system": "Use Tailwind CSS grid. Heavily utilize grid-cols-1 md:grid-cols-4 or md:grid-cols-12 for asymmetry."
+  },
+  "components": {
+    "buttons": {
+      "primary": "className='btn-gold inline-flex items-center gap-2'",
+      "secondary": "className='btn-ghost inline-flex items-center gap-2'"
+    },
+    "surfaces": {
+      "card": "className='surface p-6 md:p-8 hairline border'",
+      "elevated": "className='surface-elev p-6 md:p-8 hairline-strong border'"
+    },
+    "pills": {
+      "default": "className='pill pill-slate'",
+      "accent": "className='pill pill-gold'"
+    },
+    "terminal": {
+      "container": "className='terminal p-4 border hairline'",
+      "line": "className='terminal-line'"
+    }
+  },
+  "visual_enhancers": {
+    "backgrounds": "Use global background. Add className='grid-lines' for crosshair/grid technical background where appropriate.",
+    "dividers": "Use className='gold-line' for section transitions or emphasizing key blocks.",
+    "icons": "lucide-react (e.g., Shield, Terminal, Key, Network, Lock, GlobeLock, Database, FileDigit, Cpu, Server, CheckCircle2)"
+  },
+  "content_strategy_and_sections": {
+    "language": "Italian (with English technical terms)",
+    "tone": "Authoritative, technical, uncompromised, zero-fluff.",
+    "sections": [
+      {
+        "name": "Hero",
+        "features": "Bold statement on Post-quantum sovereignty. Live telemetry strip with static numbers. Left-aligned.",
+        "ctas": "Primary: 'Registra la tua azienda', Secondary: 'Accedi'"
+      },
+      {
+        "name": "Compliance Bar",
+        "features": "GDPR, NIS2, Crittografia Italiana ACN, EU Data Act, AGID badges/pills."
+      },
+      {
+        "name": "Why Lattice",
+        "features": "3-4 differentiators. NIST FIPS 204, BN254 ZK, X25519 onion, 2f+1 BFT quorum. Card-based asymmetrical grid."
+      },
+      {
+        "name": "How it actually works",
+        "features": "4-step technical flow (Domain -> Keypair -> ZK Login -> On-chain notarisation)."
+      },
+      {
+        "name": "Show me the math",
+        "features": "Terminal window showing mock curl requests to /api/pqc/info, /api/qbft/status, /api/rln/zk/verify."
+      },
+      {
+        "name": "Use cases",
+        "features": "Clean grid (Finance, Healthcare, Legal, Public Sector, Defence)."
+      },
+      {
+        "name": "Pricing",
+        "features": "3 tiers (Pilot, Sovereign, National Critical Infrastructure). Price: 'Su richiesta'."
+      },
+      {
+        "name": "Final CTA & Footer",
+        "features": "'Registra la tua azienda in 60 secondi'. Simple footer with copyright, Privacy, Terms, GitHub."
+      }
+    ]
+  },
+  "media": {
+    "image_urls": {},
+    "instructions": "No external images. Rely purely on typography, CSS utility classes (.grid-lines, .terminal), and lucide-react icons."
+  },
+  "testing": {
+    "attributes": "Every interactive element must include a `data-testid` attribute (e.g., landing-cta-onboarding, landing-feature-pqc)."
+  },
+  "instructions_to_main_agent": [
+    "Build the page entirely within /app/frontend/src/pages/Landing.jsx.",
+    "Use ONLY existing CSS classes (.btn-gold, .surface, .font-display, etc.) defined in App.css and index.css.",
+    "Do not make real API calls; use hardcoded static content.",
+    "Ensure standard semantic HTML elements are used where appropriate.",
+    "In /app/frontend/src/App.js, update the routing so <Landing /> is at path '/' and move the existing dashboard route to '/dashboard'.",
+    "In /app/frontend/src/components/AppShell.jsx, update the navigation sidebar to link to '/dashboard' instead of '/' for the dashboard."
+  ]
+}

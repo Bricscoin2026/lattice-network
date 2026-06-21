@@ -1,0 +1,18 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "lattice-py"
+version = "0.1.0"
+description = "Lattice Network — Python FFI over the Rust open-core workspace (lattice-crypto)."
+requires-python = ">=3.11"
+classifiers = [
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: Implementation :: CPython",
+]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+manifest-path = "Cargo.toml"
+module-name = "lattice_py"

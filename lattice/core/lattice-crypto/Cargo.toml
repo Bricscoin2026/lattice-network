@@ -1,0 +1,25 @@
+[package]
+name = "lattice-crypto"
+version = "0.2.0"
+edition = "2021"
+license = "BSL-1.1"
+description = "Lattice Network — Post-Quantum Cryptography primitives (open-core). NIST FIPS 204 (ML-DSA-65, aka Dilithium3) + FIPS 203 (ML-KEM-768, aka Kyber-768) + FIPS 202 (SHA3) + AES-256-GCM."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pqcrypto-traits = "0.3"
+pqcrypto-kyber = "0.7"
+pqcrypto-dilithium = "0.5"
+sha3 = "0.10"
+aes-gcm = "0.10"
+serde = { version = "1.0", features = ["derive"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+getrandom = { version = "0.2", features = ["js"] }
+
+[features]
+default = []
+wasm = []

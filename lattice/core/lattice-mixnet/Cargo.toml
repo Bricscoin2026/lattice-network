@@ -1,0 +1,11 @@
+[package]
+name = "lattice-mixnet"
+version = "0.1.0"
+edition = "2021"
+license = "BSL-1.1"
+description = "Lattice Network — Loopix-style sealed-sender mixnet routing layer (open-core)."
+
+[dependencies]
+lattice-crypto = { path = "../lattice-crypto" }
+serde = { version = "1.0", features = ["derive"] }
+sha3 = "0.10"

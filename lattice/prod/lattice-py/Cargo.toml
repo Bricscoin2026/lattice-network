@@ -1,0 +1,16 @@
+[package]
+name = "lattice-py"
+version = "0.1.0"
+edition = "2021"
+license = "Commercial"
+description = "Lattice Network — Python FFI bindings (PyO3) over the open-core Rust workspace. Exposes the real lattice-crypto primitives (ML-DSA-65, SHA3, fingerprint) to the FastAPI backend."
+
+[lib]
+name = "lattice_py"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py311"] }
+sha3 = "0.10"
+hex = "0.4"
+lattice-crypto = { path = "../../core/lattice-crypto" }
