@@ -96,6 +96,21 @@ test_reports/iteration_*.json
 
 memory/test_credentials.md
 
+# Marketing / book assets (pesanti, non codice)
+**/LATTICE_LIBRO_COMPLETO.pdf
+**/LATTICE_LIBRO_COMPLETO.docx
+memory/book_img/
+
+# Playwright E2E test reports (auto-generati, ~1.5MB di HTML/JS minified)
+e2e/playwright-report/
+e2e/test-results/
+
+# Frontend build output
+frontend/build/
+frontend/dist/
+**/*.bundle.js
+**/*.min.js
+
 # Mobile development
 android-sdk/frontend/node_modules/.cache/default-development/30.pack
 frontend/node_modules/.cache/default-development/1.pack
